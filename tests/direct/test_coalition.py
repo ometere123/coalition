@@ -191,7 +191,7 @@ def test_withdrawn_bid_releases_admission_slot(direct_vm, direct_deploy):
     contract = direct_deploy(CONTRACT)
     creator = addr("creator")
     providers = []
-    for index in range(11):
+    for index in range(12):
         owner = addr(f"slot-owner-{index}")
         providers.append((owner, profile(direct_vm, contract, owner, f"slot-{index}")))
     tid, _ = task(direct_vm, contract, creator, [
@@ -203,6 +203,32 @@ def test_withdrawn_bid_releases_admission_slot(direct_vm, direct_deploy):
         contract.withdraw_bid(bids[0])
     replacement = bid(direct_vm, contract, providers[10][0], tid, providers[10][1], 11)
     assert replacement > bids[-1]
+    with direct_vm.prank(providers[11][0]):
+        with direct_vm.expect_revert("bid limit"):
+            contract.submit_bid(tid, providers[11][1], 12)
+
+
+def test_bid_history_churn_is_bounded(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator = addr("creator")
+    providers = []
+    for index in range(21):
+        owner = addr(f"churn-owner-{index}")
+        providers.append((owner, profile(direct_vm, contract, owner, f"churn-{index}")))
+    tid, _ = task(direct_vm, contract, creator, [
+        ("SOLIDITY", "Provider demonstrates completed Solidity smart-contract security work.", 1)
+    ])
+    for index in range(20):
+        owner, pid = providers[index]
+        bid_id = bid(direct_vm, contract, owner, tid, pid, index + 1)
+        with direct_vm.prank(owner):
+            contract.withdraw_bid(bid_id)
+    owner, pid = providers[20]
+    with direct_vm.prank(owner):
+        with direct_vm.expect_revert("bid history limit"):
+            contract.submit_bid(tid, pid, 21)
+    assert len(contract.get_task(tid)["bid_ids"]) == 20
 
 
 def test_unavailable_qualification_can_be_retried(direct_vm, direct_deploy):

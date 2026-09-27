@@ -68,15 +68,18 @@ Follow `LIVE_DEMO.md`, then fill `REVIEW_EVIDENCE.md` with real transaction hash
 The liveness-hardening source was deployed to Studionet 61999 after the full
 Direct Mode suite, preflight, compile and lint gates passed.
 
-- Contract: `0xdF7B26E11D3B40034eC1f91A1dC8B80bd0fb9b50`
-- Deployment transaction: `0xe3778a6871d53adcadf273ec01c01c994926a8cd1cf0a3f285e20ad1c02a327c`
-- Explorer: `https://explorer-studio.genlayer.com/address/0xdF7B26E11D3B40034eC1f91A1dC8B80bd0fb9b50`
+- Contract: `0x19b6bB183859b4418c6347C24Fa15d09316e432f`
+- Deployment transaction: `0x6a057cf8f50d3dc48ec3e4ded57bf295defc7a3c581875f97983a5341a970e81`
+- Explorer: `https://explorer-studio.genlayer.com/address/0x19b6bB183859b4418c6347C24Fa15d09316e432f`
 - Deployment result: `FINALIZED / ACCEPTED / SUCCESS`
+- Deployed source snapshot: `48619` bytes, SHA-256 `40642726e20b04c6a58952294b52f182a0e77da50566934bd0222c061659e85d`
 
 The deployed changes are narrowly scoped to two liveness protections:
 
 1. withdrawn bids no longer consume the task's active bid-admission capacity;
-2. a qualification that resolves `UNAVAILABLE` can be retried in place, while
+2. retained bid history is capped at 20 records per task, while the solver
+   remains capped at 10 active bids;
+3. a qualification that resolves `UNAVAILABLE` can be retried in place, while
    all other terminal qualification verdicts remain immutable.
 
 Live proof on this deployment included a provider-specific public-evidence

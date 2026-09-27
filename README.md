@@ -49,7 +49,7 @@ The stable test path is green in GitHub Actions:
 - Direct Mode GenVM: **v0.3.0-rc7**
 - exact contract runner hash verified inside the official runner bundle
 - static repository preflight: **passed**
-- Direct Mode: **13 passed, 0 failed**
+- Direct Mode: **16 passed, 0 failed**
 
 See [`REVIEW_EVIDENCE.md`](REVIEW_EVIDENCE.md) for the CI run and exact tested commit.
 
@@ -95,7 +95,11 @@ Sealing creates `profile_hash`. A bid always references that immutable provider 
 
 The creator cannot strategically close bidding early. `close_bidding()` succeeds only after the frozen bidding deadline and can be called by anyone.
 
-One provider address can submit at most one bid to a task, which prevents a provider from flooding the bounded subset search with several profile aliases.
+One provider address can submit at most one bid to a task. A task admits at most
+10 simultaneously active bids and retains at most 20 bid records total. A
+withdrawal releases an active slot, but bounded history prevents repeated
+withdraw/submit churn from growing storage without limit; a Sybil set still
+cannot exceed the ten active solver inputs.
 
 ### 4. Validators independently re-observe capability evidence
 

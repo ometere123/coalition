@@ -41,6 +41,9 @@ MAX_URL_LEN = 512
 MAX_EVIDENCE_SOURCES = 3
 MAX_REQUIREMENTS = 6
 MAX_BIDS = 10
+# Withdrawals release an active slot, but bid records remain addressable for
+# auditability. Keep that bounded so churn cannot grow task state without limit.
+MAX_BID_HISTORY = MAX_BIDS * 2
 MAX_TEAM_SIZE = 5
 MAX_MIN_COVERAGE = 3
 MAX_PAGE_CHARS_PER_SOURCE = 7000
@@ -843,6 +846,8 @@ class Coalition(gl.Contract):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: only provider owner may bid")
         if int(price) <= 0 or int(price) > int(task.budget):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bid price must be positive and within budget")
+        if len(task.bid_ids) >= MAX_BID_HISTORY:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: bid history limit reached")
         active_bid_count = 0
         for existing_id in task.bid_ids:
             if int(self._bid(existing_id).status) == BID_ACTIVE:
