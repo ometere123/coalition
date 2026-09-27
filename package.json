@@ -1,0 +1,17 @@
+{
+  "name": "coalition-genlayer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "COALITION - consensus-qualified deterministic multi-provider team formation for GenLayer Studionet",
+  "devDependencies": {
+    "genlayer": "0.39.1"
+  },
+  "scripts": {
+    "genlayer:version": "genlayer --version",
+    "network:studionet": "genlayer network set studionet && genlayer network info",
+    "deploy:studionet": "genlayer network set studionet && genlayer network info && genlayer deploy --contract contracts/coalition.py"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
