@@ -87,3 +87,18 @@ The current review source adds:
 Live values below this point must be populated only from finalized Studionet
 61999 receipts for the new source. Existing deployment evidence above remains
 historical evidence for the preceding source.
+
+## Provenance deployment evidence
+
+- Final source commit: `577d52f0a13b09cf3ac0b055fd409678678d377a`
+- Final source SHA-256: `0dc05e635ae64e9a0d77c35e2393e9b9a34a06836f248e1822cfda4fca38fee2`
+- Contract: `0xcb211f72AecB476c1366102cFD6F4fFa6786be41`
+- Deployment: `0x3d0767d7d38ade906f70528fe700d8c59563cd5d0a650f3913c82acb54858e78`
+- Result: `FINALIZED / MAJORITY_AGREE / SUCCESS`
+- Explorer: `https://explorer-studio.genlayer.com/address/0xcb211f72AecB476c1366102cFD6F4fFa6786be41`
+
+The live frozen-admission setup is recorded in `DEPLOYMENT.md`: profile 1 was
+sealed, task 1 was configured with `FROZEN_PROFILES`, sealed, and read back with
+definition hash `8567a76058778f31d2a0b7d7d326850d85d2af1dac1c554eb9e0e65988a8acfb`.
+The full qualification/solve lifecycle was not claimed: a short-window follow-
+up bid finalized after its deadline with `EXPECTED: task is not accepting bids`.
