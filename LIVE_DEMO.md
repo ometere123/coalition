@@ -59,3 +59,14 @@ Expected terminal state: `UNSATISFIABLE`, with no AI-generated compromise.
 ## Evidence quality
 
 Use stable public pages that clearly demonstrate the narrow frozen capability. Do not use private dashboards, authenticated pages, or vague marketing copy.
+## High-assurance admission path
+
+For the strongest reviewer path, create and seal the required provider
+profiles first, then set the task to `FROZEN_PROFILES` and admit the exact
+sealed profile IDs in ascending order. Seal the task before any bids are
+submitted. Record `definition_hash`, then qualify every active bid/requirement
+cell. After solving, record `matrix_hash`, `solution_hash`, and verify them
+with `is_solution_bundle`.
+
+This path prevents unrelated profiles from consuming the frozen candidate
+universe, but it does not claim that blockchain addresses represent people.

@@ -245,11 +245,201 @@ def test_unavailable_qualification_can_be_retried(direct_vm, direct_deploy):
     direct_vm.mock_web(r".*alice\.example\.com/evidence.*", {"status": 200, "body": ""})
     qid = contract.resolve_qualification(tid, bid_id, reqs[0])
     assert contract.get_qualification(qid)["verdict_name"] == "UNAVAILABLE"
+    first_hash = contract.get_qualification(qid)["receipt_hash"]
+    assert len(first_hash) == 64
+    assert contract.is_qualification(qid, first_hash) is True
+    assert contract.is_qualification(qid, "00" * 32) is False
 
     evidence = "Public portfolio demonstrates production Solidity security reviews."
     qid_retry = qualify(direct_vm, contract, tid, bid_id, reqs[0], "alice", evidence)
     assert qid_retry == qid
     assert contract.get_qualification(qid)["verdict_name"] == "QUALIFIED"
+    assert contract.get_qualification(qid)["receipt_hash"] != first_hash
+
+
+def frozen_task(vm, contract, creator, profile_ids, coverage=1):
+    with vm.prank(creator):
+        tid = contract.create_task(
+            "Frozen coalition task",
+            "Use an explicitly frozen provider universe for a bounded coalition decision.",
+            100,
+            3,
+            DEADLINE_TS,
+        )
+        contract.add_requirement(
+            tid,
+            "CAPABILITY",
+            "Provider demonstrates the required capability using sealed public evidence.",
+            coverage,
+        )
+        contract.set_admission_mode(tid, 1)
+        for profile_id in profile_ids:
+            contract.admit_profile(tid, profile_id)
+        contract.seal_task(tid)
+    return tid
+
+
+def test_frozen_admission_requires_creator_sealed_unique_bounded_profiles(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice, bob, outsider = [addr(name) for name in ("creator", "alice", "bob", "outsider")]
+    pa = profile(direct_vm, contract, alice, "alice")
+    pb = profile(direct_vm, contract, bob, "bob")
+    outsider_profile = profile(direct_vm, contract, outsider, "outsider")
+    with direct_vm.prank(creator):
+        tid = contract.create_task("Frozen", "A frozen provider set must be configured before bidding.", 100, 2, DEADLINE_TS)
+        contract.add_requirement(tid, "CAPABILITY", "Provider demonstrates the required capability using sealed public evidence.", 1)
+        with direct_vm.prank(alice):
+            with direct_vm.expect_revert("only task creator"):
+                contract.set_admission_mode(tid, 1)
+        with direct_vm.prank(creator):
+            contract.set_admission_mode(tid, 1)
+        with direct_vm.prank(alice):
+            with direct_vm.expect_revert("only task creator"):
+                contract.admit_profile(tid, pa)
+        with direct_vm.prank(creator):
+            contract.admit_profile(tid, pa)
+        contract.admit_profile(tid, pb)
+        with direct_vm.expect_revert("profile already admitted"):
+            contract.admit_profile(tid, pa)
+        with direct_vm.expect_revert("clear frozen profiles"):
+            contract.set_admission_mode(tid, 0)
+        contract.seal_task(tid)
+    data = contract.get_task(tid)
+    assert data["admission_mode"] == 1
+    assert data["admitted_profile_ids"] == [pa, pb]
+    with direct_vm.prank(outsider):
+        with direct_vm.expect_revert("not admitted"):
+            contract.submit_bid(tid, outsider_profile, 10)
+    with direct_vm.prank(alice):
+        contract.submit_bid(tid, pa, 10)
+    with direct_vm.prank(creator):
+        with direct_vm.expect_revert("admission policy is frozen"):
+            contract.set_admission_mode(tid, 0)
+
+
+def test_frozen_admission_rejects_empty_or_insufficient_set(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice, bob = addr("creator"), addr("alice"), addr("bob")
+    pa = profile(direct_vm, contract, alice, "alice")
+    pb = profile(direct_vm, contract, bob, "bob")
+    with direct_vm.prank(creator):
+        empty = contract.create_task("Empty", "Frozen admission must contain a valid sealed profile.", 100, 2, DEADLINE_TS)
+        contract.add_requirement(empty, "CAPABILITY", "Two independent providers must satisfy this capability requirement.", 2)
+        contract.set_admission_mode(empty, 1)
+        with direct_vm.expect_revert("admitted profile"):
+            contract.seal_task(empty)
+        limited = contract.create_task("Limited", "Admission must be sufficient for the frozen coverage requirement.", 100, 2, DEADLINE_TS)
+        contract.add_requirement(limited, "CAPABILITY", "Two independent providers must satisfy this capability requirement.", 2)
+        contract.set_admission_mode(limited, 1)
+        contract.admit_profile(limited, pa)
+        with direct_vm.expect_revert("cannot satisfy"):
+            contract.seal_task(limited)
+        contract.admit_profile(limited, pb)
+        contract.seal_task(limited)
+
+
+def test_frozen_admission_definition_hash_binds_candidate_set(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice, bob = addr("creator"), addr("alice"), addr("bob")
+    pa = profile(direct_vm, contract, alice, "alice")
+    pb = profile(direct_vm, contract, bob, "bob")
+    first = frozen_task(direct_vm, contract, creator, [pa])
+    second = frozen_task(direct_vm, contract, creator, [pa, pb])
+    assert contract.get_task(first)["definition_hash"] != contract.get_task(second)["definition_hash"]
+
+
+def test_open_admission_remains_backward_compatible(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice = addr("creator"), addr("alice")
+    pid = profile(direct_vm, contract, alice, "alice")
+    tid, _ = task(direct_vm, contract, creator, [("CAPABILITY", "Provider demonstrates the required capability using sealed public evidence.", 1)])
+    assert contract.get_task(tid)["admission_mode"] == 0
+    assert bid(direct_vm, contract, alice, tid, pid, 10) != 0
+
+
+def test_unsealed_profile_cannot_be_admitted(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice = addr("creator"), addr("alice")
+    with direct_vm.prank(alice):
+        pid = contract.create_provider("draft", "A draft profile with evidence pending sealing and admission.")
+        contract.add_provider_evidence(pid, "portfolio", "https://draft.example.com/evidence")
+    with direct_vm.prank(creator):
+        tid = contract.create_task("Frozen", "Only sealed profiles may enter the frozen candidate universe.", 100, 1, DEADLINE_TS)
+        contract.set_admission_mode(tid, 1)
+        with direct_vm.expect_revert("must be sealed"):
+            contract.admit_profile(tid, pid)
+
+
+def test_duplicate_owner_cannot_fill_two_frozen_entries(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice = addr("creator"), addr("alice")
+    first = profile(direct_vm, contract, alice, "alice-one")
+    second = profile(direct_vm, contract, alice, "alice-two")
+    with direct_vm.prank(creator):
+        tid = contract.create_task("Frozen", "A provider owner may occupy only one frozen admission entry.", 100, 1, DEADLINE_TS)
+        contract.set_admission_mode(tid, 1)
+        contract.admit_profile(tid, first)
+        with direct_vm.expect_revert("one admitted profile"):
+            contract.admit_profile(tid, second)
+
+
+def test_frozen_admission_has_ten_profile_bound(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator = addr("creator")
+    profiles = []
+    for index in range(11):
+        owner = addr(f"provider-{index}")
+        profiles.append(profile(direct_vm, contract, owner, f"provider-{index}"))
+    with direct_vm.prank(creator):
+        tid = contract.create_task("Frozen", "The frozen candidate universe is bounded to the solver bid limit.", 100, 1, DEADLINE_TS)
+        contract.set_admission_mode(tid, 1)
+        for profile_id in profiles[:10]:
+            contract.admit_profile(tid, profile_id)
+        with direct_vm.expect_revert("limit reached"):
+            contract.admit_profile(tid, profiles[10])
+
+
+def test_terminal_qualification_receipt_cannot_be_rewritten(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice = addr("creator"), addr("alice")
+    pid = profile(direct_vm, contract, alice, "alice")
+    tid, reqs = task(direct_vm, contract, creator, [("CAPABILITY", "Provider demonstrates the required capability using sealed public evidence.", 1)])
+    bid_id = bid(direct_vm, contract, alice, tid, pid, 10)
+    close(direct_vm, contract, tid)
+    qid = reject(direct_vm, contract, tid, bid_id, reqs[0], "alice")
+    before = contract.get_qualification(qid)["receipt_hash"]
+    with direct_vm.expect_revert("already resolved"):
+        contract.resolve_qualification(tid, bid_id, reqs[0])
+    assert contract.get_qualification(qid)["receipt_hash"] == before
+
+
+def test_solution_bundle_commits_full_matrix_provenance(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice, bob = addr("creator"), addr("alice"), addr("bob")
+    pa = profile(direct_vm, contract, alice, "alice")
+    pb = profile(direct_vm, contract, bob, "bob")
+    tid, reqs = task(direct_vm, contract, creator, [("CAPABILITY", "Provider demonstrates the required capability using sealed public evidence.", 1)])
+    ba = bid(direct_vm, contract, alice, tid, pa, 10)
+    bb = bid(direct_vm, contract, bob, tid, pb, 20)
+    close(direct_vm, contract, tid)
+    qualify(direct_vm, contract, tid, ba, reqs[0], "alice", "Public portfolio demonstrates the required capability.")
+    qualify(direct_vm, contract, tid, bb, reqs[0], "bob", "Public portfolio demonstrates the required capability.")
+    contract.solve_task(tid)
+    solution = contract.get_solution(tid)
+    assert len(solution["matrix_hash"]) == 64
+    assert contract.is_solution_bundle(tid, solution["definition_hash"], solution["matrix_hash"], solution["solution_hash"]) is True
+    assert contract.is_solution_bundle(tid, "00" * 32, solution["matrix_hash"], solution["solution_hash"]) is False
+    assert contract.is_solution_bundle(tid, solution["definition_hash"], "00" * 32, solution["solution_hash"]) is False
+    assert contract.is_solution_bundle(tid, solution["definition_hash"], solution["matrix_hash"], "00" * 32) is False
 
 
 def test_positive_qualification_is_source_anchored_and_rechecked(direct_vm, direct_deploy):

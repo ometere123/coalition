@@ -23,10 +23,21 @@ No model sees all bids and returns a preferred coalition.
 ## State objects
 
 - `ProviderProfile`: immutable after sealing; pins evidence URLs and a profile hash.
-- `Task`: freezes budget, deadline, team size and requirement set.
+- `Task`: freezes budget, deadline, team size, requirement set and admission policy.
 - `Requirement`: natural-language capability plus deterministic `min_coverage`.
 - `Bid`: sealed profile reference plus deterministic price.
-- `Qualification`: one consensus receipt for one `(bid, requirement)` cell.
+- `Qualification`: one consensus receipt for one `(bid, requirement)` cell, pinned by a deterministic `receipt_hash`.
+
+## Admission modes
+
+`OPEN` is permissionless bounded bidding. It remains useful for open markets,
+but it is not Sybil-resistant. `FROZEN_PROFILES` freezes the exact sealed
+profile set before bidding. The creator cannot change it after sealing, and an
+unadmitted profile cannot substitute for an admitted one. Admission is a task
+policy and does not assert real-world identity.
+
+The admission mode, ordered admitted profile IDs, profile hashes and owners are
+part of the canonical task payload and therefore part of `definition_hash`.
 
 ## Complete matrix requirement
 
@@ -47,3 +58,8 @@ Valid candidates are totally ordered by `(total_price, member_count, bid_id_sequ
 A consumer can pin both the expected task and exact coalition receipt through:
 
 `is_solution(task_id, expected_definition_hash, expected_solution_hash)`
+
+For stronger consumers, `is_solution_bundle` also requires the exact
+`matrix_hash`. The matrix commits every active bid and every qualification
+receipt, including losing bids, before the deterministic subset solver creates
+the final `solution_hash`.

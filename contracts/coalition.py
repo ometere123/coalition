@@ -44,6 +44,8 @@ MAX_BIDS = 10
 # Withdrawals release an active slot, but bid records remain addressable for
 # auditability. Keep that bounded so churn cannot grow task state without limit.
 MAX_BID_HISTORY = MAX_BIDS * 2
+ADMISSION_OPEN = 0
+ADMISSION_FROZEN_PROFILES = 1
 MAX_TEAM_SIZE = 5
 MAX_MIN_COVERAGE = 3
 MAX_PAGE_CHARS_PER_SOURCE = 7000
@@ -113,6 +115,9 @@ class Task:
     definition_hash: str
     solution_hash: str
     reason: str
+    admission_mode: u8
+    admitted_profile_ids: DynArray[u256]
+    matrix_hash: str
 
 
 @allow_storage
@@ -148,6 +153,7 @@ class Qualification:
     evidence: str
     source_url: str
     resolved_at: u256
+    receipt_hash: str
 
 
 @gl.contract_interface
@@ -160,7 +166,9 @@ class ICoalition:
         def get_bid(self, bid_id: u256) -> dict: ...
         def get_qualification(self, qualification_id: u256) -> dict: ...
         def get_solution(self, task_id: u256) -> dict: ...
+        def is_qualification(self, qualification_id: u256, expected_receipt_hash: str) -> bool: ...
         def is_solution(self, task_id: u256, expected_definition_hash: str, expected_solution_hash: str) -> bool: ...
+        def is_solution_bundle(self, task_id: u256, expected_definition_hash: str, expected_matrix_hash: str, expected_solution_hash: str) -> bool: ...
         def get_status_dictionary(self) -> dict: ...
 
     class Write:
@@ -171,6 +179,8 @@ class ICoalition:
         def create_task(self, title: str, description: str, budget: u256, max_team_size: u8, bidding_deadline: u256) -> u256: ...
         def add_requirement(self, task_id: u256, label: str, description: str, min_coverage: u8) -> u256: ...
         def seal_task(self, task_id: u256) -> None: ...
+        def set_admission_mode(self, task_id: u256, mode: u8) -> None: ...
+        def admit_profile(self, task_id: u256, profile_id: u256) -> None: ...
         def cancel_task_draft(self, task_id: u256) -> None: ...
         def submit_bid(self, task_id: u256, profile_id: u256, price: u256) -> u256: ...
         def withdraw_bid(self, bid_id: u256) -> None: ...
@@ -487,6 +497,14 @@ class Coalition(gl.Contract):
                 "description": str(requirement.description),
                 "min_coverage": int(requirement.min_coverage),
             })
+        admitted = []
+        for profile_id in task.admitted_profile_ids:
+            profile = self._provider(profile_id)
+            admitted.append({
+                "profile_id": int(profile_id),
+                "profile_hash": str(profile.profile_hash),
+                "owner": str(profile.owner),
+            })
         return json.dumps({
             "title": str(task.title),
             "description": str(task.description),
@@ -494,6 +512,67 @@ class Coalition(gl.Contract):
             "max_team_size": int(task.max_team_size),
             "bidding_deadline": int(task.bidding_deadline),
             "requirements": requirements,
+            "admission_mode": int(task.admission_mode),
+            "admitted_profiles": admitted,
+        }, sort_keys=True, separators=(",", ":"))
+
+    def _qualification_receipt_payload(
+        self,
+        task_id: u256,
+        bid_id: u256,
+        requirement_id: u256,
+        verdict: int,
+        reason: str,
+        evidence: str,
+        source_url: str,
+        resolved_at: int,
+    ) -> str:
+        task = self._task(task_id)
+        bid = self._bid(bid_id)
+        profile = self._provider(bid.profile_id)
+        return json.dumps({
+            "task_definition_hash": str(task.definition_hash),
+            "bid_id": int(bid_id),
+            "profile_id": int(bid.profile_id),
+            "profile_hash": str(profile.profile_hash),
+            "bidder": str(bid.bidder),
+            "price": int(bid.price),
+            "requirement_id": int(requirement_id),
+            "verdict": int(verdict),
+            "reason": str(reason),
+            "evidence": str(evidence),
+            "source_url": str(source_url),
+            "resolved_at": int(resolved_at),
+        }, sort_keys=True, separators=(",", ":"))
+
+    def _matrix_payload(self, task_id: u256, active_ids) -> str:
+        task = self._task(task_id)
+        rows = []
+        for raw_bid_id in active_ids:
+            bid = self._bid(u256(raw_bid_id))
+            profile = self._provider(bid.profile_id)
+            cells = []
+            for requirement_id in task.requirement_ids:
+                qid = self._qualification_id_for(bid, requirement_id)
+                record = self._qualification(u256(qid))
+                cells.append({
+                    "requirement_id": int(requirement_id),
+                    "qualification_id": int(qid),
+                    "receipt_hash": str(record.receipt_hash),
+                    "verdict": int(record.verdict),
+                })
+            rows.append({
+                "bid_id": int(raw_bid_id),
+                "profile_id": int(bid.profile_id),
+                "profile_hash": str(profile.profile_hash),
+                "bidder": str(bid.bidder),
+                "price": int(bid.price),
+                "qualifications": cells,
+            })
+        return json.dumps({
+            "task_id": int(task_id),
+            "definition_hash": str(task.definition_hash),
+            "bids": rows,
         }, sort_keys=True, separators=(",", ":"))
 
     def _solution_payload(self, task_id: u256) -> str:
@@ -511,6 +590,7 @@ class Coalition(gl.Contract):
             })
         return json.dumps({
             "task_hash": str(task.definition_hash),
+            "matrix_hash": str(task.matrix_hash),
             "status": int(task.status),
             "total_cost": int(task.total_cost),
             "selected": selected,
@@ -773,8 +853,52 @@ class Coalition(gl.Contract):
         task.definition_hash = ""
         task.solution_hash = ""
         task.reason = ""
+        task.admission_mode = u8(ADMISSION_OPEN)
+        task.matrix_hash = ""
         TaskCreated(task_id, gl.message.sender_address, deadline=bidding_deadline).emit()
         return task_id
+
+    def _admission_contains(self, task: Task, profile_id: u256) -> bool:
+        for admitted_id in task.admitted_profile_ids:
+            if int(admitted_id) == int(profile_id):
+                return True
+        return False
+
+    @gl.public.write
+    def set_admission_mode(self, task_id: u256, mode: u8) -> None:
+        task = self._task(task_id)
+        if int(task.status) != TASK_DRAFT:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: admission policy is frozen")
+        if task.creator != gl.message.sender_address:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only task creator may configure admission")
+        if int(mode) not in (ADMISSION_OPEN, ADMISSION_FROZEN_PROFILES):
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: unsupported admission mode")
+        if int(mode) == ADMISSION_OPEN and len(task.admitted_profile_ids) != 0:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: clear frozen profiles before opening admission")
+        task.admission_mode = mode
+
+    @gl.public.write
+    def admit_profile(self, task_id: u256, profile_id: u256) -> None:
+        task = self._task(task_id)
+        profile = self._provider(profile_id)
+        if int(task.status) != TASK_DRAFT:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: admission policy is frozen")
+        if task.creator != gl.message.sender_address:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only task creator may admit profiles")
+        if int(task.admission_mode) != ADMISSION_FROZEN_PROFILES:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: frozen admission mode is required")
+        if int(profile.status) != PROFILE_SEALED:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: admitted profile must be sealed")
+        if len(task.admitted_profile_ids) >= MAX_BIDS:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: admitted profile limit reached")
+        if self._admission_contains(task, profile_id):
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: profile already admitted")
+        for admitted_id in task.admitted_profile_ids:
+            if self._provider(admitted_id).owner == profile.owner:
+                raise gl.vm.UserError(f"{ERR_EXPECTED}: one admitted profile per provider owner")
+        if len(task.admitted_profile_ids) > 0 and int(profile_id) <= int(task.admitted_profile_ids[-1]):
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: admitted profiles must be added in ascending order")
+        task.admitted_profile_ids.append(profile_id)
 
     @gl.public.write
     def add_requirement(self, task_id: u256, label: str, description: str, min_coverage: u8) -> u256:
@@ -816,6 +940,18 @@ class Coalition(gl.Contract):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: only task creator may seal")
         if len(task.requirement_ids) == 0:
             raise gl.vm.UserError(f"{ERR_EXPECTED}: add at least one requirement")
+        if int(task.admission_mode) == ADMISSION_FROZEN_PROFILES:
+            if len(task.admitted_profile_ids) == 0:
+                raise gl.vm.UserError(f"{ERR_EXPECTED}: frozen admission requires an admitted profile")
+            admitted_owners = []
+            for profile_id in task.admitted_profile_ids:
+                owner = str(self._provider(profile_id).owner)
+                if owner not in admitted_owners:
+                    admitted_owners.append(owner)
+            for requirement_id in task.requirement_ids:
+                requirement = self._requirement(requirement_id)
+                if int(requirement.min_coverage) > len(admitted_owners):
+                    raise gl.vm.UserError(f"{ERR_EXPECTED}: admitted owners cannot satisfy min_coverage")
         if message_timestamp() >= int(task.bidding_deadline):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bidding deadline has passed")
         task.definition_hash = Keccak256(self._task_payload(task_id).encode("utf-8")).hexdigest()
@@ -842,6 +978,8 @@ class Coalition(gl.Contract):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bidding deadline has passed")
         if int(profile.status) != PROFILE_SEALED:
             raise gl.vm.UserError(f"{ERR_EXPECTED}: provider profile must be sealed")
+        if int(task.admission_mode) == ADMISSION_FROZEN_PROFILES and not self._admission_contains(task, profile_id):
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: provider profile is not admitted for this task")
         if profile.owner != gl.message.sender_address:
             raise gl.vm.UserError(f"{ERR_EXPECTED}: only provider owner may bid")
         if int(price) <= 0 or int(price) > int(task.budget):
@@ -937,6 +1075,16 @@ class Coalition(gl.Contract):
         record.evidence = evidence
         record.source_url = source_url
         record.resolved_at = u256(message_timestamp())
+        record.receipt_hash = Keccak256(self._qualification_receipt_payload(
+            task_id,
+            bid_id,
+            requirement_id,
+            verdict,
+            record.reason,
+            evidence,
+            source_url,
+            int(record.resolved_at),
+        ).encode("utf-8")).hexdigest()
         if existing_qid == 0:
             bid.qualification_ids.append(qid)
         QualificationResolved(task_id, bid_id, requirement_id, verdict=u8(verdict), qualification_id=qid).emit()
@@ -1029,6 +1177,8 @@ class Coalition(gl.Contract):
         if not self._matrix_complete(task, active_ids):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: qualification matrix incomplete")
 
+        task.matrix_hash = Keccak256(self._matrix_payload(task_id, active_ids).encode("utf-8")).hexdigest()
+
         solution = self._choose_coalition(task, active_ids)
         selected = solution["bid_ids"]
         total_cost = int(solution["cost"])
@@ -1090,11 +1240,14 @@ class Coalition(gl.Contract):
             "status": int(task.status),
             "status_name": task_name(int(task.status)),
             "requirement_ids": [int(item) for item in task.requirement_ids],
+            "admission_mode": int(task.admission_mode),
+            "admitted_profile_ids": [int(item) for item in task.admitted_profile_ids],
             "bid_ids": [int(item) for item in task.bid_ids],
             "selected_bid_ids": [int(item) for item in task.selected_bid_ids],
             "total_cost": int(task.total_cost),
             "definition_hash": str(task.definition_hash),
             "solution_hash": str(task.solution_hash),
+            "matrix_hash": str(task.matrix_hash),
             "reason": str(task.reason),
         }
 
@@ -1137,6 +1290,7 @@ class Coalition(gl.Contract):
             "evidence": str(record.evidence),
             "source_url": str(record.source_url),
             "resolved_at": int(record.resolved_at),
+            "receipt_hash": str(record.receipt_hash),
         }
 
     @gl.public.view
@@ -1156,6 +1310,7 @@ class Coalition(gl.Contract):
             "status": int(task.status),
             "status_name": task_name(int(task.status)),
             "definition_hash": str(task.definition_hash),
+            "matrix_hash": str(task.matrix_hash),
             "solution_hash": str(task.solution_hash),
             "total_cost": int(task.total_cost),
             "selected": selected,
@@ -1170,6 +1325,30 @@ class Coalition(gl.Contract):
             and str(task.definition_hash) != ""
             and str(task.solution_hash) != ""
             and str(task.definition_hash) == str(expected_definition_hash)
+            and str(task.solution_hash) == str(expected_solution_hash)
+        )
+
+    @gl.public.view
+    def is_qualification(self, qualification_id: u256, expected_receipt_hash: str) -> bool:
+        record = self._qualification(qualification_id)
+        return str(record.receipt_hash) != "" and str(record.receipt_hash) == str(expected_receipt_hash)
+
+    @gl.public.view
+    def is_solution_bundle(
+        self,
+        task_id: u256,
+        expected_definition_hash: str,
+        expected_matrix_hash: str,
+        expected_solution_hash: str,
+    ) -> bool:
+        task = self._task(task_id)
+        return (
+            int(task.status) == TASK_SOLVED
+            and str(task.definition_hash) != ""
+            and str(task.matrix_hash) != ""
+            and str(task.solution_hash) != ""
+            and str(task.definition_hash) == str(expected_definition_hash)
+            and str(task.matrix_hash) == str(expected_matrix_hash)
             and str(task.solution_hash) == str(expected_solution_hash)
         )
 
@@ -1196,5 +1375,9 @@ class Coalition(gl.Contract):
                 "NOT_QUALIFIED": NOT_QUALIFIED,
                 "AMBIGUOUS": AMBIGUOUS,
                 "UNAVAILABLE": UNAVAILABLE,
+            },
+            "admission": {
+                "OPEN": ADMISSION_OPEN,
+                "FROZEN_PROFILES": ADMISSION_FROZEN_PROFILES,
             },
         }

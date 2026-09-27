@@ -20,7 +20,20 @@ Profile metadata and source URLs are immutable after sealing. The external page 
 
 ## Sybil boundary
 
-One provider address can occupy only one bid slot per task. This is not real-world identity or Sybil resistance.
+One provider address can occupy only one bid slot per task. In `OPEN` mode this
+is bounded admission, not real-world identity or Sybil resistance. In
+`FROZEN_PROFILES` mode the task creator freezes the exact sealed candidate set
+before bidding; duplicate owners are rejected and outsiders cannot consume
+the frozen solver slots. This is an admission policy, not an identity oracle.
+
+## Cryptographic provenance
+
+Sealed profiles commit their public evidence with `profile_hash`. A frozen task
+commits its requirements and admission set with `definition_hash`. Each
+qualification cell commits its exact semantic result and source-grounded
+evidence with `receipt_hash`. Solving commits the complete active matrix,
+including non-selected bids, with `matrix_hash`, and binds that hash into the
+deterministic `solution_hash`.
 
 ## Subjective optimisation
 

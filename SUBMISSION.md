@@ -45,3 +45,14 @@ COALITION intentionally has no frontend, marketplace UI, hidden backend or off-c
 Target: **Studionet / chain 61999 / https://studio.genlayer.com/api**.
 
 The repository pins **GenLayer CLI 0.39.1** locally and intentionally does not target Studio-dev / 61997.
+## Current quality pass
+
+The current source adds an explicit high-assurance admission option without
+removing open bidding. `FROZEN_PROFILES` freezes sealed profile IDs before
+bidding and binds them into the task definition hash. Qualification receipts
+and the complete active qualification matrix are also hash-pinned, so a
+consumer can verify both semantic-cell provenance and the exact decision
+surface used by the deterministic solver.
+
+The final address and lifecycle values for this source will be added only from
+finalized Studionet 61999 receipts.

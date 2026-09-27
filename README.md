@@ -361,6 +361,26 @@ A reviewer can understand the core primitive without reading every helper:
 4. `_choose_coalition()` performs the bounded deterministic set-cover search.
 5. `solve_task()` commits either a unique deterministic coalition or `UNSATISFIABLE`.
 6. `is_solution()` exposes a pinned reusable consumer boundary.
+7. `is_solution_bundle()` additionally pins the complete qualification matrix.
+
+### Admission and provenance
+
+Tasks support two explicit admission policies. `OPEN` preserves permissionless
+bounded bidding and makes no Sybil-resistance claim. `FROZEN_PROFILES` lets the
+creator freeze a bounded set of sealed provider profiles before bidding; exact
+profile IDs, profile hashes and owners become part of `definition_hash`, so
+unadmitted profiles cannot consume solver slots. This is an authorisation
+policy, not an identity oracle: one address is not a real-world identity.
+
+COALITION exposes a cryptographic provenance ladder:
+
+`profile_hash` → frozen task `definition_hash` → qualification `receipt_hash`
+→ complete active `matrix_hash` → deterministic `solution_hash`.
+
+Qualification receipts include the frozen definition, bid/profile identity,
+price, requirement, verdict, reason, evidence, source URL and resolution time.
+`UNAVAILABLE` may be retried in place and receives a new current receipt hash;
+other terminal verdicts remain immutable.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/SECURITY.md`](docs/SECURITY.md), and [`LIVE_DEMO.md`](LIVE_DEMO.md).
 

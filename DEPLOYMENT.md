@@ -92,3 +92,17 @@ The first qualification on the same deployment also demonstrates conservative
 semantic handling: generic public pages that did not substantiate the named
 provider returned `AMBIGUOUS`, and the resulting complete task was
 `UNSATISFIABLE` rather than being treated as qualified.
+
+## Final provenance migration
+
+The next deployment must use the current source after the admission/provenance
+upgrade. Its exact live values are intentionally left blank until a finalized
+Studionet deployment is observed. Do not treat this section as evidence.
+
+- Admission modes: `OPEN` (permissionless bounded) and `FROZEN_PROFILES` (exact
+  sealed profile set frozen before bidding).
+- Definition binding: mode, admitted profile IDs, profile hashes and owners.
+- Qualification binding: canonical receipt hash, including verdict and
+  source-grounded evidence.
+- Solution binding: complete active matrix hash, including losing bids.
+- Consumer views: `is_qualification` and `is_solution_bundle`.

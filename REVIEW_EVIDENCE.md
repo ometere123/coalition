@@ -74,3 +74,16 @@ fail-closed semantic behavior.
 - qualification transactions:
 - solve transaction:
 - terminal state:
+## Provenance upgrade pending live deployment
+
+The current review source adds:
+
+- `OPEN` and `FROZEN_PROFILES` admission modes;
+- definition-hash binding for the admission set and sealed profile hashes;
+- deterministic qualification `receipt_hash` values;
+- complete active-matrix `matrix_hash` values bound into `solution_hash`;
+- `is_qualification` and `is_solution_bundle` consumer checks.
+
+Live values below this point must be populated only from finalized Studionet
+61999 receipts for the new source. Existing deployment evidence above remains
+historical evidence for the preceding source.
