@@ -1,0 +1,42 @@
+name: coalition-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  direct-mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned GenLayer CLI
+        run: npm install
+
+      - name: Verify CLI version
+        run: |
+          VERSION=$(npx genlayer --version)
+          echo "GenLayer CLI: $VERSION"
+          echo "$VERSION" | grep -F "0.39.1"
+
+      - name: Install Direct Mode dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Static preflight
+        run: python scripts/preflight.py
+
+      - name: Direct Mode
+        run: pytest tests/direct -q
