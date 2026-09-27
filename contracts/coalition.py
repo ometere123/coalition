@@ -151,21 +151,26 @@ class Qualification:
 class ICoalition:
     class View:
         def get_provider(self, profile_id: u256) -> dict: ...
+        def get_evidence_source(self, evidence_id: u256) -> dict: ...
         def get_task(self, task_id: u256) -> dict: ...
         def get_requirement(self, requirement_id: u256) -> dict: ...
         def get_bid(self, bid_id: u256) -> dict: ...
         def get_qualification(self, qualification_id: u256) -> dict: ...
         def get_solution(self, task_id: u256) -> dict: ...
         def is_solution(self, task_id: u256, expected_definition_hash: str, expected_solution_hash: str) -> bool: ...
+        def get_status_dictionary(self) -> dict: ...
 
     class Write:
         def create_provider(self, name: str, summary: str) -> u256: ...
         def add_provider_evidence(self, profile_id: u256, label: str, url: str) -> u256: ...
         def seal_provider(self, profile_id: u256) -> None: ...
+        def cancel_provider_draft(self, profile_id: u256) -> None: ...
         def create_task(self, title: str, description: str, budget: u256, max_team_size: u8, bidding_deadline: u256) -> u256: ...
         def add_requirement(self, task_id: u256, label: str, description: str, min_coverage: u8) -> u256: ...
         def seal_task(self, task_id: u256) -> None: ...
+        def cancel_task_draft(self, task_id: u256) -> None: ...
         def submit_bid(self, task_id: u256, profile_id: u256, price: u256) -> u256: ...
+        def withdraw_bid(self, bid_id: u256) -> None: ...
         def close_bidding(self, task_id: u256) -> None: ...
         def resolve_qualification(self, task_id: u256, bid_id: u256, requirement_id: u256) -> u256: ...
         def solve_task(self, task_id: u256) -> None: ...
@@ -717,6 +722,15 @@ class Coalition(gl.Contract):
         ProviderSealed(profile_id, profile_hash=str(profile.profile_hash)).emit()
 
     @gl.public.write
+    def cancel_provider_draft(self, profile_id: u256) -> None:
+        profile = self._provider(profile_id)
+        if int(profile.status) != PROFILE_DRAFT:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only a draft provider may be cancelled")
+        if profile.owner != gl.message.sender_address:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only provider owner may cancel")
+        profile.status = u8(PROFILE_CANCELLED)
+
+    @gl.public.write
     def create_task(self, title: str, description: str, budget: u256, max_team_size: u8, bidding_deadline: u256) -> u256:
         title = clean_text(title, MAX_TASK_TITLE_LEN + 1)
         description = clean_text(description, MAX_TASK_DESCRIPTION_LEN + 1)
@@ -807,6 +821,15 @@ class Coalition(gl.Contract):
         TaskSealed(task_id, definition_hash=str(task.definition_hash)).emit()
 
     @gl.public.write
+    def cancel_task_draft(self, task_id: u256) -> None:
+        task = self._task(task_id)
+        if int(task.status) != TASK_DRAFT:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only a draft task may be cancelled")
+        if task.creator != gl.message.sender_address:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only task creator may cancel")
+        task.status = u8(TASK_CANCELLED)
+
+    @gl.public.write
     def submit_bid(self, task_id: u256, profile_id: u256, price: u256) -> u256:
         task = self._task(task_id)
         profile = self._provider(profile_id)
@@ -838,6 +861,18 @@ class Coalition(gl.Contract):
         task.bid_ids.append(bid_id)
         BidSubmitted(task_id, bid_id, gl.message.sender_address, price=price, profile_id=profile_id).emit()
         return bid_id
+
+    @gl.public.write
+    def withdraw_bid(self, bid_id: u256) -> None:
+        bid = self._bid(bid_id)
+        task = self._task(bid.task_id)
+        if int(task.status) != TASK_BIDDING or message_timestamp() >= int(task.bidding_deadline):
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: bid can only be withdrawn before the bidding deadline")
+        if bid.bidder != gl.message.sender_address:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: only bidder may withdraw")
+        if int(bid.status) != BID_ACTIVE:
+            raise gl.vm.UserError(f"{ERR_EXPECTED}: bid is not active")
+        bid.status = u8(BID_WITHDRAWN)
 
     @gl.public.write
     def close_bidding(self, task_id: u256) -> None:
@@ -1018,6 +1053,16 @@ class Coalition(gl.Contract):
         }
 
     @gl.public.view
+    def get_evidence_source(self, evidence_id: u256) -> dict:
+        evidence = self._evidence(evidence_id)
+        return {
+            "id": int(evidence_id),
+            "profile_id": int(evidence.profile_id),
+            "label": str(evidence.label),
+            "url": str(evidence.url),
+        }
+
+    @gl.public.view
     def get_task(self, task_id: u256) -> dict:
         task = self._task(task_id)
         return {
@@ -1113,3 +1158,29 @@ class Coalition(gl.Contract):
             and str(task.definition_hash) == str(expected_definition_hash)
             and str(task.solution_hash) == str(expected_solution_hash)
         )
+
+    @gl.public.view
+    def get_status_dictionary(self) -> dict:
+        return {
+            "provider": {"DRAFT": PROFILE_DRAFT, "SEALED": PROFILE_SEALED, "CANCELLED": PROFILE_CANCELLED},
+            "task": {
+                "DRAFT": TASK_DRAFT,
+                "BIDDING": TASK_BIDDING,
+                "QUALIFYING": TASK_QUALIFYING,
+                "SOLVED": TASK_SOLVED,
+                "UNSATISFIABLE": TASK_UNSATISFIABLE,
+                "CANCELLED": TASK_CANCELLED,
+            },
+            "bid": {
+                "ACTIVE": BID_ACTIVE,
+                "WITHDRAWN": BID_WITHDRAWN,
+                "SELECTED": BID_SELECTED,
+                "NOT_SELECTED": BID_NOT_SELECTED,
+            },
+            "qualification": {
+                "QUALIFIED": QUALIFIED,
+                "NOT_QUALIFIED": NOT_QUALIFIED,
+                "AMBIGUOUS": AMBIGUOUS,
+                "UNAVAILABLE": UNAVAILABLE,
+            },
+        }
