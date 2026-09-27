@@ -4,7 +4,7 @@ Verified live evidence for COALITION on **Studionet chain 61999**.
 
 ## Deployment
 
-- repository commit used: see final commit containing this exact deployed source
+- repository commit used: `d1b4d7b7d0983b9f741067cc218895a51b98f1ea`
 - local CLI version: `0.39.1`
 - network: Studionet
 - RPC: `https://studio.genlayer.com/api`
@@ -15,8 +15,8 @@ Verified live evidence for COALITION on **Studionet chain 61999**.
 
 ## Direct Mode
 
-- CI run: https://github.com/ometere123/coalition/actions/runs/36349467079
-- tested commit: `fe89002543a0c226ba1bd49318a90de3d1024423`
+- CI run: https://github.com/ometere123/coalition/actions/runs/36350211635
+- tested commit: `d1b4d7b7d0983b9f741067cc218895a51b98f1ea`
 - runner OS: Ubuntu 24.04 GitHub-hosted runner
 - Python: 3.12
 - local application CLI verified by CI: `0.39.1`
@@ -27,6 +27,7 @@ Verified live evidence for COALITION on **Studionet chain 61999**.
 - test command: `pytest tests/direct -q`
 - passed count: **16**
 - failed count: **0**
+- CI conclusion: **success**
 - runtime: **31.12s**
 - notes: the repository includes `scripts/prepare_direct_mode.py` because the stable v0.29.2 harness expects the historical universal-bundle cache name while the official rc7 release now publishes the runner archive as `genvm-runners-all.tar.xz`.
 
