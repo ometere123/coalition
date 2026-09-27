@@ -25,7 +25,7 @@ Verified live evidence for COALITION on **Studionet chain 61999**.
 - contract runner hash verified in bundle: `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6`
 - static preflight: **passed**
 - test command: `pytest tests/direct -q`
-- passed count: **16**
+- passed count: **26**
 - failed count: **0**
 - CI conclusion: **success**
 - runtime: **31.12s**
@@ -96,6 +96,12 @@ historical evidence for the preceding source.
 - Deployment: `0x3d0767d7d38ade906f70528fe700d8c59563cd5d0a650f3913c82acb54858e78`
 - Result: `FINALIZED / MAJORITY_AGREE / SUCCESS`
 - Explorer: `https://explorer-studio.genlayer.com/address/0xcb211f72AecB476c1366102cFD6F4fFa6786be41`
+
+The 26-test Direct Mode suite includes
+`test_losing_qualification_receipt_changes_matrix_and_solution_hash`, which
+uses two fresh deployments and proves that changing only a losing bid's
+qualification changes both `matrix_hash` and `solution_hash` while the winner
+and total cost remain unchanged.
 
 The live frozen-admission setup is recorded in `DEPLOYMENT.md`: profile 1 was
 sealed, task 1 was configured with `FROZEN_PROFILES`, sealed, and read back with

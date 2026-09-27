@@ -49,7 +49,7 @@ The stable test path is green in GitHub Actions:
 - Direct Mode GenVM: **v0.3.0-rc7**
 - exact contract runner hash verified inside the official runner bundle
 - static repository preflight: **passed**
-- Direct Mode: **16 passed, 0 failed**
+- Direct Mode: **26 passed, 0 failed**
 
 See [`REVIEW_EVIDENCE.md`](REVIEW_EVIDENCE.md) for the CI run and exact tested commit.
 

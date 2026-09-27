@@ -6,6 +6,7 @@ the cheapest complete coalition.
 """
 
 import json
+from pathlib import Path
 from datetime import datetime, timezone
 
 CONTRACT = "contracts/coalition.py"
@@ -440,6 +441,62 @@ def test_solution_bundle_commits_full_matrix_provenance(direct_vm, direct_deploy
     assert contract.is_solution_bundle(tid, "00" * 32, solution["matrix_hash"], solution["solution_hash"]) is False
     assert contract.is_solution_bundle(tid, solution["definition_hash"], "00" * 32, solution["solution_hash"]) is False
     assert contract.is_solution_bundle(tid, solution["definition_hash"], solution["matrix_hash"], "00" * 32) is False
+
+
+def test_losing_qualification_receipt_changes_matrix_and_solution_hash(direct_vm, direct_deploy, tmp_path):
+    """The final receipt commits the complete matrix, including losing bids."""
+    direct_vm.warp(BASE)
+
+    second_contract_path = tmp_path / "coalition_second_deployment.py"
+    second_contract_path.write_bytes(Path(CONTRACT).read_bytes())
+
+    def run_scenario(loser_verdict, contract_path):
+        contract = direct_deploy(contract_path)
+        creator, winner_owner, loser_owner = addr("creator"), addr("winner"), addr("loser")
+        winner_profile = profile(direct_vm, contract, winner_owner, "winner")
+        loser_profile = profile(direct_vm, contract, loser_owner, "loser")
+        task_id, requirement_ids = task(direct_vm, contract, creator, [
+            ("CAPABILITY", "Provider demonstrates the required capability using sealed public evidence.", 1),
+        ], budget=100, max_team=1)
+        winner_bid = bid(direct_vm, contract, winner_owner, task_id, winner_profile, 10)
+        loser_bid = bid(direct_vm, contract, loser_owner, task_id, loser_profile, 20)
+        close(direct_vm, contract, task_id)
+
+        qualify(direct_vm, contract, task_id, winner_bid, requirement_ids[0], "winner", "Public portfolio demonstrates the required capability.")
+        if loser_verdict == "NOT_QUALIFIED":
+            reject(direct_vm, contract, task_id, loser_bid, requirement_ids[0], "loser")
+        else:
+            direct_vm.clear_mocks()
+            direct_vm.mock_web(r".*loser\.example\.com/evidence.*", {"status": 200, "body": "Public page is inconclusive."})
+            direct_vm.mock_llm(CLASSIFIER, result("AMBIGUOUS", "", "public evidence is inconclusive", -1))
+            qid = contract.resolve_qualification(task_id, loser_bid, requirement_ids[0])
+            assert contract.get_qualification(qid)["verdict_name"] == "AMBIGUOUS"
+            assert direct_vm.run_validator() is True
+
+        contract.solve_task(task_id)
+        return contract, task_id, contract.get_solution(task_id), contract.get_qualification(
+            contract.get_bid(loser_bid)["qualification_ids"][0]
+        )
+
+    snapshot = direct_vm.snapshot()
+    contract_a, task_a, solution_a, losing_receipt_a = run_scenario("NOT_QUALIFIED", CONTRACT)
+    bundle_a = contract_a.is_solution_bundle(task_a, solution_a["definition_hash"], solution_a["matrix_hash"], solution_a["solution_hash"])
+    direct_vm.revert(snapshot)
+    # gltest 0.29 keeps a one-contract-per-module registry. Clear that
+    # harness-only registry so this regression can exercise two fresh
+    # deployments without changing production code or protocol state.
+    import genlayer.gl.genvm_contracts as genvm_contracts
+    genvm_contracts.__known_contract__ = None
+    contract_b, task_b, solution_b, losing_receipt_b = run_scenario("AMBIGUOUS", str(second_contract_path))
+
+    assert solution_a["definition_hash"] == solution_b["definition_hash"]
+    assert solution_a["selected"] == solution_b["selected"]
+    assert solution_a["total_cost"] == solution_b["total_cost"]
+    assert losing_receipt_a["receipt_hash"] != losing_receipt_b["receipt_hash"]
+    assert solution_a["matrix_hash"] != solution_b["matrix_hash"]
+    assert solution_a["solution_hash"] != solution_b["solution_hash"]
+    assert bundle_a is True
+    assert contract_b.is_solution_bundle(task_b, solution_b["definition_hash"], solution_b["matrix_hash"], solution_b["solution_hash"]) is True
 
 
 def test_positive_qualification_is_source_anchored_and_rechecked(direct_vm, direct_deploy):
