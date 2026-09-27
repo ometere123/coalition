@@ -39,4 +39,6 @@ jobs:
         run: python scripts/preflight.py
 
       - name: Direct Mode
+        env:
+          GENVM_VERSION: v0.3.0-rc7
         run: pytest tests/direct -q
