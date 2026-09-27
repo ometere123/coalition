@@ -1,3 +1,5 @@
-# Stable Direct Mode matching the Studionet-era contract family.
-genlayer-test @ git+https://github.com/genlayerlabs/genlayer-testing-suite@v0.29.2
+# Direct Mode harness pinned to the upstream loader revision that supports
+# GenVM v0.3.0 runner-bundle asset names. The contract/network target remains
+# stable Studionet 61999 and the application CLI remains 0.39.1.
+genlayer-test @ git+https://github.com/genlayerlabs/genlayer-testing-suite@343e3a358f9e235a93b49c60721ce7676585ff07
 pytest>=8.0,<9
