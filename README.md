@@ -41,6 +41,20 @@ This repository is **not** configured for `studio-dev`, chain `61997`, or the 0.
 
 The project-local `package.json` pins `genlayer@0.39.1`, so use `npm install` and `npx genlayer ...` (or the npm scripts) even if another GenLayer CLI is installed globally.
 
+## Validation status
+
+The stable test path is green in GitHub Actions:
+
+- project-local GenLayer CLI: **0.39.1**
+- Direct Mode GenVM: **v0.3.0-rc7**
+- exact contract runner hash verified inside the official runner bundle
+- static repository preflight: **passed**
+- Direct Mode: **13 passed, 0 failed**
+
+See [`REVIEW_EVIDENCE.md`](REVIEW_EVIDENCE.md) for the CI run and exact tested commit.
+
+A live Studionet address is intentionally not claimed until deployment is signed, finalized and exercised on chain **61999**.
+
 ## Why this primitive exists
 
 Single-provider markets are easy to model: one task, several providers, one winner.
