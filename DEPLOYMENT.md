@@ -62,3 +62,30 @@ Wait for the expected finalized state, then record the contract address, deploym
 ## 7. Execute the reviewer lifecycle
 
 Follow `LIVE_DEMO.md`, then fill `REVIEW_EVIDENCE.md` with real transaction hashes and observed results only.
+
+## 8. Latest live compatibility deployment
+
+The liveness-hardening source was deployed to Studionet 61999 after the full
+Direct Mode suite, preflight, compile and lint gates passed.
+
+- Contract: `0xdF7B26E11D3B40034eC1f91A1dC8B80bd0fb9b50`
+- Deployment transaction: `0xe3778a6871d53adcadf273ec01c01c994926a8cd1cf0a3f285e20ad1c02a327c`
+- Explorer: `https://explorer-studio.genlayer.com/address/0xdF7B26E11D3B40034eC1f91A1dC8B80bd0fb9b50`
+- Deployment result: `FINALIZED / ACCEPTED / SUCCESS`
+
+The deployed changes are narrowly scoped to two liveness protections:
+
+1. withdrawn bids no longer consume the task's active bid-admission capacity;
+2. a qualification that resolves `UNAVAILABLE` can be retried in place, while
+   all other terminal qualification verdicts remain immutable.
+
+Live proof on this deployment included a provider-specific public-evidence
+qualification (`0xcb76dd9a7d0ed0c20dbc291a9723200ad6f3bf59697a175bde2b0689ce0cdf70`)
+and a deterministic solved selection (`0x982c194675b4ae9842b2d103d49325d1cf6febcdbe26b68b78f19a20d1dbdf87`).
+Task 3 selected bid 5 at total cost 20; `is_solution` returned true for the
+exact definition/solution hashes and false after changing the definition hash.
+
+The first qualification on the same deployment also demonstrates conservative
+semantic handling: generic public pages that did not substantiate the named
+provider returned `AMBIGUOUS`, and the resulting complete task was
+`UNSATISFIABLE` rather than being treated as qualified.

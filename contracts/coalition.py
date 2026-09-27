@@ -197,7 +197,7 @@ class BidSubmitted(gl.Event):
 
 
 class QualificationResolved(gl.Event):
-    def __init__(self, task_id: u256, bid_id: u256, requirement_id: u256, verdict: u8, /, **blob): ...
+    def __init__(self, task_id: u256, bid_id: u256, requirement_id: u256, /, **blob): ...
 
 
 class CoalitionSolved(gl.Event):
@@ -843,7 +843,11 @@ class Coalition(gl.Contract):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: only provider owner may bid")
         if int(price) <= 0 or int(price) > int(task.budget):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bid price must be positive and within budget")
-        if len(task.bid_ids) >= MAX_BIDS:
+        active_bid_count = 0
+        for existing_id in task.bid_ids:
+            if int(self._bid(existing_id).status) == BID_ACTIVE:
+                active_bid_count += 1
+        if active_bid_count >= MAX_BIDS:
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bid limit reached")
         for existing_id in task.bid_ids:
             if self._bid(existing_id).bidder == gl.message.sender_address:
@@ -896,8 +900,11 @@ class Coalition(gl.Contract):
             raise gl.vm.UserError(f"{ERR_EXPECTED}: bid and requirement must belong to task")
         if int(bid.status) != BID_ACTIVE:
             raise gl.vm.UserError(f"{ERR_EXPECTED}: only active bids can be qualified")
-        if self._qualification_id_for(bid, requirement_id) != 0:
-            raise gl.vm.UserError(f"{ERR_EXPECTED}: qualification already resolved")
+        existing_qid = self._qualification_id_for(bid, requirement_id)
+        if existing_qid != 0:
+            existing_record = self._qualification(u256(existing_qid))
+            if int(existing_record.verdict) != UNAVAILABLE:
+                raise gl.vm.UserError(f"{ERR_EXPECTED}: qualification already resolved")
 
         profile = self._provider(bid.profile_id)
         result = self._qualify_consensus(profile, requirement)
@@ -912,8 +919,9 @@ class Coalition(gl.Contract):
             evidence = ""
             source_url = ""
 
-        qid = self.next_qualification_id
-        self.next_qualification_id = u256(int(self.next_qualification_id) + 1)
+        qid = u256(existing_qid) if existing_qid != 0 else self.next_qualification_id
+        if existing_qid == 0:
+            self.next_qualification_id = u256(int(self.next_qualification_id) + 1)
         record = self.qualifications.get_or_insert_default(qid)
         record.task_id = task_id
         record.bid_id = bid_id
@@ -924,8 +932,9 @@ class Coalition(gl.Contract):
         record.evidence = evidence
         record.source_url = source_url
         record.resolved_at = u256(message_timestamp())
-        bid.qualification_ids.append(qid)
-        QualificationResolved(task_id, bid_id, requirement_id, u8(verdict), qualification_id=qid).emit()
+        if existing_qid == 0:
+            bid.qualification_ids.append(qid)
+        QualificationResolved(task_id, bid_id, requirement_id, verdict=u8(verdict), qualification_id=qid).emit()
         return qid
 
     def _active_bid_ids(self, task: Task):

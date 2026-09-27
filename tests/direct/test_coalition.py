@@ -186,6 +186,46 @@ def test_withdrawn_bid_is_not_in_selection_matrix(direct_vm, direct_deploy):
     assert contract.get_solution(tid)["status_name"] == "UNSATISFIABLE"
 
 
+def test_withdrawn_bid_releases_admission_slot(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator = addr("creator")
+    providers = []
+    for index in range(11):
+        owner = addr(f"slot-owner-{index}")
+        providers.append((owner, profile(direct_vm, contract, owner, f"slot-{index}")))
+    tid, _ = task(direct_vm, contract, creator, [
+        ("SOLIDITY", "Provider demonstrates completed Solidity smart-contract security work.", 1)
+    ])
+    bids = [bid(direct_vm, contract, owner, tid, pid, index + 1)
+            for index, (owner, pid) in enumerate(providers[:10])]
+    with direct_vm.prank(providers[0][0]):
+        contract.withdraw_bid(bids[0])
+    replacement = bid(direct_vm, contract, providers[10][0], tid, providers[10][1], 11)
+    assert replacement > bids[-1]
+
+
+def test_unavailable_qualification_can_be_retried(direct_vm, direct_deploy):
+    direct_vm.warp(BASE)
+    contract = direct_deploy(CONTRACT)
+    creator, alice = addr("creator"), addr("alice")
+    pid = profile(direct_vm, contract, alice, "alice")
+    tid, reqs = task(direct_vm, contract, creator, [
+        ("SOLIDITY", "Provider demonstrates completed Solidity smart-contract security work.", 1)
+    ])
+    bid_id = bid(direct_vm, contract, alice, tid, pid, 20)
+    close(direct_vm, contract, tid)
+    direct_vm.clear_mocks()
+    direct_vm.mock_web(r".*alice\.example\.com/evidence.*", {"status": 200, "body": ""})
+    qid = contract.resolve_qualification(tid, bid_id, reqs[0])
+    assert contract.get_qualification(qid)["verdict_name"] == "UNAVAILABLE"
+
+    evidence = "Public portfolio demonstrates production Solidity security reviews."
+    qid_retry = qualify(direct_vm, contract, tid, bid_id, reqs[0], "alice", evidence)
+    assert qid_retry == qid
+    assert contract.get_qualification(qid)["verdict_name"] == "QUALIFIED"
+
+
 def test_positive_qualification_is_source_anchored_and_rechecked(direct_vm, direct_deploy):
     direct_vm.warp(BASE)
     contract = direct_deploy(CONTRACT)
